@@ -1,0 +1,40 @@
+{
+  "name": "UOR-12-Human-Approval-Gateway",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor11", "name": "Read UOR-11 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-11-alerts-needs-review.jsonl", "options": {}}},
+    {"id": "extract-uor11", "name": "Extract UOR-11 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor12-decisions", "name": "Read UOR-12 Decisions", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-12-approval-decisions.jsonl", "options": {}}},
+    {"id": "extract-uor12-decisions", "name": "Extract UOR-12 Decisions Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "build-approval-status",
+      "name": "Build Approval Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor11Text = $('Extract UOR-11 Text').first().json.data || '';\nconst decisionsText = $('Extract UOR-12 Decisions Text').first().json.data || '';\n\nfunction parseLines(text) {\n  const out = []; let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nconst uor11 = parseLines(uor11Text);\nconst decisions = parseLines(decisionsText);\n\nconst ALLOWED_STATUSES = new Set(['APPROVED', 'REJECTED', 'DEFERRED']);\n\n// Latest decision per opportunity_id (same Map+timestamp pattern used\n// throughout this project). A malformed or unrecognized decision line is\n// NOT applied -- the id simply falls back to PENDING_DECISION below rather\n// than trusting bad input (Section 15: bad/low-confidence data).\nconst latestDecisionById = new Map();\nlet invalidDecisionCount = 0;\ndecisions.records.forEach((d) => {\n  if (!d.opportunity_id || !ALLOWED_STATUSES.has(d.approval_status) || !d.decided_at) {\n    invalidDecisionCount++;\n    return;\n  }\n  const existing = latestDecisionById.get(d.opportunity_id);\n  if (!existing || String(d.decided_at) > String(existing.decided_at)) {\n    latestDecisionById.set(d.opportunity_id, d);\n  }\n});\n\n// HARD BOUNDARY (Section 13, non-negotiable): this workflow only records\n// what a human has decided. It never sends, posts, purchases, or triggers\n// any external action -- not even for an APPROVED record. APPROVED here\n// means a human has authorized a *future, separately-built, separately-\n// approved* execution workflow to act on this opportunity later. It is not\n// itself a trigger. execution_authorized is hardcoded false unconditionally\n// -- this module has no code path that can ever set it true.\nconst results = uor11.records.map((r) => {\n  const decision = latestDecisionById.get(r.opportunity_id);\n  return {\n    opportunity_id: r.opportunity_id,\n    approval_status: decision ? decision.approval_status : 'PENDING_DECISION',\n    decided_by: decision ? (decision.decided_by ?? null) : null,\n    decided_at: decision ? (decision.decided_at ?? null) : null,\n    notes: decision ? (decision.notes ?? null) : null,\n    opportunity_title: r.opportunity_title,\n    productization_tier: r.productization_tier,\n    reconciled_opportunity_score: r.reconciled_opportunity_score,\n    reconciled_evidence_confidence: r.reconciled_evidence_confidence,\n    source_url: r.source_url,\n    execution_authorized: false,\n    approval_formula_version: 'uor12-v1-approval-tracking-2026-09-10',\n    computed_at: new Date().toISOString(),\n  };\n});\n\nconst fileText = results.map((a) => JSON.stringify(a)).join('\\n') + (results.length ? '\\n' : '');\n\nreturn [{\n  json: {\n    approval_status_count: results.length,\n    decisions_parsed: latestDecisionById.size,\n    decisions_invalid_or_ignored: invalidDecisionCount,\n    file_text: fileText,\n  },\n}];\n"
+      }
+    },
+    {"id": "convert-approval-status", "name": "Convert Approval Status to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-approval-status", "name": "Write Approval Status File", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-12-approval-status.jsonl", "dataPropertyName": "data", "options": {"append": false}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-11 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-11 Storage": {"main": [[{"node": "Extract UOR-11 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-11 Text": {"main": [[{"node": "Read UOR-12 Decisions", "type": "main", "index": 0}]]},
+    "Read UOR-12 Decisions": {"main": [[{"node": "Extract UOR-12 Decisions Text", "type": "main", "index": 0}]]},
+    "Extract UOR-12 Decisions Text": {"main": [[{"node": "Build Approval Status", "type": "main", "index": 0}]]},
+    "Build Approval Status": {"main": [[{"node": "Convert Approval Status to File", "type": "main", "index": 0}]]},
+    "Convert Approval Status to File": {"main": [[{"node": "Write Approval Status File", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "name": "Sample: Service-Business Lead Auto-Responder",
+  "nodes": [
+    {
+      "id": "form-trigger-1",
+      "name": "Book a Consultation",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [200, 300],
+      "parameters": {
+        "formTitle": "Book a Consultation",
+        "formDescription": "Tell us a little about yourself and we'll be in touch soon. (Demo form — not connected to a live website.)",
+        "formFields": {
+          "values": [
+            {"fieldLabel": "Name", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Email", "fieldType": "email", "requiredField": true},
+            {"fieldLabel": "Phone", "fieldType": "text", "placeholder": "Optional", "requiredField": false},
+            {"fieldLabel": "Message", "fieldType": "textarea", "placeholder": "What would you like to talk about?", "requiredField": true},
+            {
+              "fieldLabel": "How soon are you looking to get started?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {"option": "Just exploring"},
+                  {"option": "Within a few weeks"},
+                  {"option": "As soon as possible"}
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {"path": "book-a-consultation", "buttonLabel": "Submit"}
+      },
+      "notes": "Hosted n8n demo form. Not embedded on any real website — this is a sample built to demonstrate the auto-responder flow for a generic service business.",
+      "webhookId": "9551cb6f-8ec6-4a50-b33d-3428c42471f8"
+    },
+    {
+      "id": "set-reply-1",
+      "name": "Build Reply Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [500, 300],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "reply-message-assignment",
+              "name": "replyMessage",
+              "type": "string",
+              "value": "={{ 'Hi ' + ($json.Name ? $json.Name.split(' ')[0] : 'there') + ',\\n\\nThanks so much for reaching out! We\\'ve received your message and someone from our team will personally follow up with you within 24 hours to help find a time that works for you.\\n\\nIf anything changes in the meantime or you have a quick question, just reply to this message.\\n\\nTalk soon,\\nThe Team' }}"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "notes": "Warm, generic placeholder reply. No service-specific claims, no guaranteed-outcome language — marketing/ops copy only. Replace the static text here with an AI-generated draft once the placeholder node downstream is wired up to a real model."
+    },
+    {
+      "id": "ai-placeholder-1",
+      "name": "AI DRAFT REPLY - connect Anthropic/OpenAI node here later",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "parameters": {},
+      "disabled": true,
+      "notes": "PLACEHOLDER — currently disabled (a no-op that passes data through unchanged). Once you have an API key, replace this node with an Anthropic (Claude) or OpenAI node that reads the form fields (Name, Email, Phone, Message) and generates a personalized draft reply into a field such as `replyMessage`, then re-enable it and wire it into the chain in place of (or after) 'Build Reply Message'. Keep the same hard rule: no service-specific claims, no guaranteed-outcome language — marketing/ops only, never touching sensitive customer data."
+    },
+    {
+      "id": "form-completion-1",
+      "name": "Show Reply on Form",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.2,
+      "position": [1100, 300],
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Thanks for reaching out!",
+        "completionMessage": "={{ $json.replyMessage }}\n\n──────────────────────────\n--- INTERNAL VIEW (what your staff would see) ---\nName: {{ $json.Name }}\nPriority: {{ $json.priorityTag }}\nMessage: {{ $json.Message }}\n\n(Demo only: in a real deployment this internal section would be routed to Slack, email, or a CRM instead — it would NOT be shown to the customer. It's displayed here on the success screen purely so you can see the whole flow working end-to-end.)",
+        "options": {}
+      },
+      "notes": "Success screen shows two sections: (a) the warm customer-facing reply, and (b) an INTERNAL VIEW section with the lead's name, priority tag, and message. The internal section is demo-only — in production it should be removed from here and routed instead to Slack/email/a CRM, never displayed to the customer.",
+      "webhookId": "489ff305-c5ff-4fbf-a988-0dd57ddc6d54"
+    },
+    {
+      "id": "175b6e0c-8298-4779-8b9f-df46a18ba062",
+      "name": "Assign Priority Tag",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [350, 470],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "priority-tag-assignment",
+              "name": "priorityTag",
+              "type": "string",
+              "value": "={{ $json[\"How soon are you looking to get started?\"] === \"As soon as possible\" ? \"🔴 High Priority\" : $json[\"How soon are you looking to get started?\"] === \"Within a few weeks\" ? \"🟡 Medium\" : \"🟢 Low\" }}"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "notes": "Maps the urgency dropdown answer to a simple priority tag: 'Just exploring' -> 🟢 Low, 'Within a few weeks' -> 🟡 Medium, 'As soon as possible' -> 🔴 High Priority. In a real deployment this tag is what you'd use to route an urgent lead to a Slack alert, email, or CRM task instead of (or in addition to) showing it anywhere."
+    }
+  ],
+  "connections": {
+    "Build Reply Message": {
+      "main": [[{"node": "AI DRAFT REPLY - connect Anthropic/OpenAI node here later", "type": "main", "index": 0}]]
+    },
+    "AI DRAFT REPLY - connect Anthropic/OpenAI node here later": {
+      "main": [[{"node": "Show Reply on Form", "type": "main", "index": 0}]]
+    },
+    "Book a Consultation": {
+      "main": [[{"node": "Assign Priority Tag", "type": "main", "index": 0}]]
+    },
+    "Assign Priority Tag": {
+      "main": [[{"node": "Build Reply Message", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

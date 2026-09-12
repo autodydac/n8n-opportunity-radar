@@ -1,0 +1,40 @@
+{
+  "name": "UOR-08-Service-Opportunity-Radar",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor01-storage", "name": "Read UOR-01 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-uor01-text", "name": "Extract UOR-01 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor06-storage", "name": "Read UOR-06 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-06-demand-clustering.jsonl", "options": {}}},
+    {"id": "extract-uor06-text", "name": "Extract UOR-06 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "classify-service-signal",
+      "name": "Classify Service Signal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor01Text = $('Extract UOR-01 Text').first().json.data || '';\nconst uor06Text = $('Extract UOR-06 Text').first().json.data || '';\n\nfunction parseLines(text) {\n  const out = [];\n  let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nconst uor01 = parseLines(uor01Text);\nconst uor06 = parseLines(uor06Text);\n\nconst tagMembers = {\n  freelance_gig_service_demand: new Set(),\n  lead_gen_qualification: new Set(),\n  customer_communication_automation: new Set(),\n};\nuor06.records.forEach((row) => {\n  if (tagMembers[row.tag]) {\n    (row.member_opportunity_ids || []).forEach((id) => tagMembers[row.tag].add(id));\n  }\n});\n\nfunction keywordRegex(term, exact) {\n  const escaped = term.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  return exact ? new RegExp(`\\\\b${escaped}\\\\b`, 'i') : new RegExp(`\\\\b${escaped}\\\\w*`, 'i');\n}\n\nconst SERVICE_KEYWORDS = [\n  ['freelancer',false],['contractor',false],['consultant',false],['will pay',true],\n  ['hire',false],['outsource',false],['need someone',true],['looking for a developer',true],\n  ['looking for someone',true],['/hr',true],['rate of',true],\n];\n\nfunction extractDollarAmounts(text) {\n  const matches = text.match(/\\$\\s?[0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]+)?(?:\\/hr|\\/hour|\\/month|k)?/gi);\n  return matches ? [...new Set(matches.map((m) => m.trim()))] : [];\n}\n\nconst results = uor01.records.map((rec) => {\n  const rs = rec.raw_signal || {};\n  const text = `${rs.opportunity_title || ''} ${rs.problem || ''} ${rs.demand_signal || ''}`;\n  const keywords = SERVICE_KEYWORDS.filter(([t, e]) => keywordRegex(t, e).test(text)).map(([t]) => t);\n  const dollarAmounts = extractDollarAmounts(text);\n  const membership = {\n    freelance_gig_service_demand: tagMembers.freelance_gig_service_demand.has(rec.opportunity_id),\n    lead_gen_qualification: tagMembers.lead_gen_qualification.has(rec.opportunity_id),\n    customer_communication_automation: tagMembers.customer_communication_automation.has(rec.opportunity_id),\n  };\n  const anyTag = membership.freelance_gig_service_demand || membership.lead_gen_qualification || membership.customer_communication_automation;\n\n  let service_opportunity_status;\n  if (keywords.length > 0) service_opportunity_status = 'GENUINE_SERVICE_SEEKING_SIGNAL';\n  else if (anyTag) service_opportunity_status = 'WEAK_TANGENTIAL_MENTION';\n  else service_opportunity_status = 'NO_SERVICE_SIGNAL_DETECTED';\n\n  const factors = rec.scoring_factors || {};\n  const autoEstimateRaw = factors.automation_potential?.estimate;\n  const automation_potential_pct = typeof autoEstimateRaw === 'number' ? autoEstimateRaw * 10 : null;\n\n  return {\n    opportunity_id: rec.opportunity_id,\n    service_seeking_keywords_matched: keywords,\n    stated_dollar_amounts: dollarAmounts,\n    uor06_tag_membership: membership,\n    service_opportunity_status,\n    automation_potential_pct,\n    formula_version: 'uor08-v1-service-signal-2026-09-06',\n    computed_at: new Date().toISOString(),\n  };\n});\n\nconst fileText = results.map((r) => JSON.stringify(r)).join('\\n') + '\\n';\n\nreturn [{\n  json: {\n    uor01_record_count: uor01.records.length,\n    uor01_parse_failures: uor01.failures,\n    uor06_record_count: uor06.records.length,\n    uor06_parse_failures: uor06.failures,\n    status_breakdown: results.reduce((acc, r) => { acc[r.service_opportunity_status] = (acc[r.service_opportunity_status]||0)+1; return acc; }, {}),\n    file_text: fileText,\n  },\n}];"
+      }
+    },
+    {"id": "convert-to-file", "name": "Convert to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-uor08-output", "name": "Write UOR-08 Output", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-08-service-opportunity-radar.jsonl", "dataPropertyName": "data", "options": {"append": false}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-01 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-01 Storage": {"main": [[{"node": "Extract UOR-01 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-01 Text": {"main": [[{"node": "Read UOR-06 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-06 Storage": {"main": [[{"node": "Extract UOR-06 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-06 Text": {"main": [[{"node": "Classify Service Signal", "type": "main", "index": 0}]]},
+    "Classify Service Signal": {"main": [[{"node": "Convert to File", "type": "main", "index": 0}]]},
+    "Convert to File": {"main": [[{"node": "Write UOR-08 Output", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

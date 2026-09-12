@@ -1,0 +1,88 @@
+{
+  "name": "UOR-02-Source-Adapter-01b-HackerNews-WhoIsHiring",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-existing-storage", "name": "Read Existing Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-from-file", "name": "Extract From File", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "discover-current-thread",
+      "name": "Discover Current Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [672, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=5",
+        "authentication": "none",
+        "sendBody": false,
+        "sendHeaders": false,
+        "options": {"response": {"response": {"responseFormat": "json"}}}
+      }
+    },
+    {
+      "id": "build-comment-query",
+      "name": "Build Comment Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const hits = $input.first().json.hits || [];\nconst hiring = hits.find((h) => /Who is hiring/i.test(h.title || ''));\nif (!hiring) {\n  throw new Error('Could not find current \"Ask HN: Who is hiring?\" story in whoishiring author feed -- feed shape may have changed.');\n}\nreturn [{\n  json: {\n    story_id: hiring.objectID,\n    story_title: hiring.title,\n    fetch_url: `https://hn.algolia.com/api/v1/search_by_date?tags=comment,story_${hiring.objectID}&hitsPerPage=20`,\n  },\n}];"
+      }
+    },
+    {
+      "id": "fetch-thread-comments",
+      "name": "Fetch Thread Comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1120, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.fetch_url }}",
+        "authentication": "none",
+        "sendBody": false,
+        "sendHeaders": false,
+        "options": {"response": {"response": {"responseFormat": "json"}}}
+      }
+    },
+    {"id": "split-comments", "name": "Split Comments", "type": "n8n-nodes-base.splitOut", "typeVersion": 1, "position": [1344, 0], "parameters": {"fieldToSplitOut": "hits", "include": "noOtherFields", "options": {}}},
+    {
+      "id": "normalize-dedupe",
+      "name": "Normalize + Dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const incoming = $input.all();\n\nlet existingText = '';\ntry {\n  existingText = $('Extract From File').first()?.json?.data || '';\n} catch (e) {\n  throw new Error(`Failed to read existing storage: ${e.message}`);\n}\n\nconst existingUrls = new Set(\n  existingText.split('\\n').filter(Boolean).map(line => {\n    try { return JSON.parse(line).source_url; } catch { return null; }\n  }).filter(Boolean)\n);\n\nconst storyId = Number($('Build Comment Query').first().json.story_id);\n\nconst PLACEHOLDER = 'Unclassified — pending AI extraction';\n\nconst topLevelOnly = incoming.filter((item) => item.json.parent_id === storyId);\n\nconst normalized = topLevelOnly.map((item) => {\n  const hit = item.json;\n  const objectID = hit.objectID;\n  const sourceUrl = `https://news.ycombinator.com/item?id=${objectID}`;\n  const bodyText = hit.comment_text || '';\n  const title = bodyText ? bodyText.replace(/<[^>]*>/g, ' ').trim().slice(0, 120) : '(untitled)';\n  const rawText = bodyText;\n\n  return {\n    signal_id: `hn-${objectID}`,\n    source_type: 'public_api',\n    source_name: 'Hacker News (Who is Hiring? monthly thread, via Algolia Search API)',\n    source_url: sourceUrl,\n    signal_date: hit.created_at,\n    market: PLACEHOLDER,\n    opportunity_category: PLACEHOLDER,\n    opportunity_title: title,\n    problem: rawText,\n    target_customer: PLACEHOLDER,\n    demand_signal: rawText,\n    proposed_solution: PLACEHOLDER,\n    monetization_model: PLACEHOLDER,\n    delivery_method: PLACEHOLDER,\n    geography: PLACEHOLDER,\n    evidence_notes: `Raw signal ingested from Hacker News \"Who is hiring?\" monthly thread via Algolia Search API. HN objectID ${objectID}, top-level job posting comment. Not yet human-reviewed.`,\n    _dedupe_url: sourceUrl\n  };\n});\n\nconst fresh = normalized.filter((rec) => !existingUrls.has(rec._dedupe_url));\n\nreturn fresh.map((rec) => {\n  const { _dedupe_url, ...clean } = rec;\n  return { json: clean };\n});"
+      }
+    },
+    {
+      "id": "send-to-uor-01",
+      "name": "Send to UOR-01",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1792, 0],
+      "parameters": {"source": "database", "workflowId": {"__rl": true, "value": "0wrSuhTsnMMHWScF", "mode": "id"}, "mode": "each", "options": {"waitForSubWorkflow": true}}
+    }
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read Existing Storage", "type": "main", "index": 0}]]},
+    "Read Existing Storage": {"main": [[{"node": "Extract From File", "type": "main", "index": 0}]]},
+    "Extract From File": {"main": [[{"node": "Discover Current Thread", "type": "main", "index": 0}]]},
+    "Discover Current Thread": {"main": [[{"node": "Build Comment Query", "type": "main", "index": 0}]]},
+    "Build Comment Query": {"main": [[{"node": "Fetch Thread Comments", "type": "main", "index": 0}]]},
+    "Fetch Thread Comments": {"main": [[{"node": "Split Comments", "type": "main", "index": 0}]]},
+    "Split Comments": {"main": [[{"node": "Normalize + Dedupe", "type": "main", "index": 0}]]},
+    "Normalize + Dedupe": {"main": [[{"node": "Send to UOR-01", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

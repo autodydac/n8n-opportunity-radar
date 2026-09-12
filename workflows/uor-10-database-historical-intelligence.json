@@ -1,0 +1,81 @@
+{
+  "name": "UOR-10-Database-Historical-Intelligence-Phase2",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor01", "name": "Read UOR-01 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-uor01", "name": "Extract UOR-01 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor03", "name": "Read UOR-03 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-03-evidence-enrichment.jsonl", "options": {}}},
+    {"id": "extract-uor03", "name": "Extract UOR-03 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor04", "name": "Read UOR-04 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-04-opportunity-scoring.jsonl", "options": {}}},
+    {"id": "extract-uor04", "name": "Extract UOR-04 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor05", "name": "Read UOR-05 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-05-capability-matching.jsonl", "options": {}}},
+    {"id": "extract-uor05", "name": "Extract UOR-05 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1792, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor06", "name": "Read UOR-06 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [2016, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-06-demand-clustering.jsonl", "options": {}}},
+    {"id": "extract-uor06", "name": "Extract UOR-06 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [2240, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor07", "name": "Read UOR-07 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [2464, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-07-content-opportunity-radar.jsonl", "options": {}}},
+    {"id": "extract-uor07", "name": "Extract UOR-07 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [2688, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor08", "name": "Read UOR-08 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [2912, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-08-service-opportunity-radar.jsonl", "options": {}}},
+    {"id": "extract-uor08", "name": "Extract UOR-08 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [3136, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor09", "name": "Read UOR-09 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [3360, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-09-productization.jsonl", "options": {}}},
+    {"id": "extract-uor09", "name": "Extract UOR-09 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [3584, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "build-join",
+      "name": "Build Join",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3808, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor01Text = $('Extract UOR-01 Text').first().json.data || '';\nconst uor03Text = $('Extract UOR-03 Text').first().json.data || '';\nconst uor04Text = $('Extract UOR-04 Text').first().json.data || '';\nconst uor05Text = $('Extract UOR-05 Text').first().json.data || '';\nconst uor06Text = $('Extract UOR-06 Text').first().json.data || '';\nconst uor07Text = $('Extract UOR-07 Text').first().json.data || '';\nconst uor08Text = $('Extract UOR-08 Text').first().json.data || '';\nconst uor09Text = $('Extract UOR-09 Text').first().json.data || '';\n\nfunction parseLines(text) {\n  const out = []; let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nfunction latestByKey(records, key) {\n  const map = new Map();\n  records.forEach((r) => {\n    const existing = map.get(r.opportunity_id);\n    if (!existing || String(r[key]) > String(existing[key])) map.set(r.opportunity_id, r);\n  });\n  return map;\n}\n\nconst uor01 = parseLines(uor01Text);\nconst uor03 = parseLines(uor03Text);\nconst uor04 = parseLines(uor04Text);\nconst uor05 = parseLines(uor05Text);\nconst uor06 = parseLines(uor06Text);\nconst uor07 = parseLines(uor07Text);\nconst uor08 = parseLines(uor08Text);\nconst uor09 = parseLines(uor09Text);\n\n// UOR-01: pick latest observation per id (date_stored) -- this drives the\n// \"which opportunities exist\" universe.\nconst uor01ById = latestByKey(uor01.records, 'date_stored');\nconst uor03ById = latestByKey(uor03.records, 'computed_at');\nconst uor04ById = new Map(uor04.records.map((r) => [r.opportunity_id, r])); // already unique\nconst uor05ById = latestByKey(uor05.records, 'computed_at');\nconst uor07ById = latestByKey(uor07.records, 'computed_at');\nconst uor08ById = latestByKey(uor08.records, 'computed_at');\nconst uor09ById = new Map(uor09.records.map((r) => [r.opportunity_id, r])); // already unique\n\n// UOR-06: reverse-index member_opportunity_ids -> tag memberships.\nconst tagsByOppId = new Map();\nuor06.records.forEach((row) => {\n  (row.member_opportunity_ids || []).forEach((id) => {\n    if (!tagsByOppId.has(id)) tagsByOppId.set(id, []);\n    tagsByOppId.get(id).push({ tag: row.tag, frequency_count: row.frequency_count, cluster_status: row.cluster_status });\n  });\n});\n\n// Real-opportunity universe: UOR-01's unique ids, excluding synthetic\n// (TEST-001-style) records -- same exclusion discipline UOR-09 already uses.\nconst allIds = [...uor01ById.keys()].filter((id) => uor01ById.get(id).evidence?.is_synthetic !== true);\n\nconst results = allIds.map((id) => {\n  const u1 = uor01ById.get(id);\n  const u3 = uor03ById.get(id) || null;\n  const u4 = uor04ById.get(id) || null;\n  const u5 = uor05ById.get(id) || null;\n  const u7 = uor07ById.get(id) || null;\n  const u8 = uor08ById.get(id) || null;\n  const u9 = uor09ById.get(id) || null;\n  const tags = tagsByOppId.get(id) || [];\n\n  return {\n    opportunity_id: id,\n    date_discovered: u1.date_discovered,\n    source: u1.source,\n    source_type: u1.source_type,\n    category: u1.category,\n    raw_signal: u1.raw_signal,\n    normalized_opportunity: u1.normalized_opportunity,\n    customer_problem: u1.customer_problem,\n    evidence: {\n      raw: u1.evidence,\n      verification: u3 ? {\n        corroboration_status: u3.corroboration_status,\n        corroborating_opportunity_ids: u3.corroborating_opportunity_ids,\n        manipulation_flag: u3.manipulation_flag,\n        manipulation_reason: u3.manipulation_reason,\n        low_content_flag: u3.low_content_flag,\n      } : null,\n    },\n    evidence_confidence: {\n      initial_estimate: u1.evidence_confidence,\n      reconciled: u4 ? u4.evidence_confidence_v2_latest : null,\n    },\n    scoring_factors: u1.scoring_factors,\n    final_score: {\n      per_observation: u1.final_score,\n      reconciled: u4 ? u4.reconciled_opportunity_score : null,\n      reconciliation_status: u4 ? u4.score_reconciliation_status : null,\n    },\n    tools_required: {\n      declared: u1.tools_required,\n      matched_existing_stack: u5 ? u5.matched_stack_tools : [],\n    },\n    existing_capability_match: {\n      status: u5 ? u5.capability_match_status : null,\n      matched_domains: u5 ? u5.matched_capability_domains : [],\n      fulfillment_feasible_now: u5 ? u5.fulfillment_feasible_now : null,\n    },\n    estimated_cost: {\n      declared: u1.estimated_fulfillment_cost,\n      productization_hypothesis: u9?.productization_draft?.estimated_cost ?? null,\n    },\n    estimated_revenue_potential: {\n      declared_usd: u1.estimated_revenue_potential_usd,\n      productization_hypothesis: u9?.productization_draft?.pricing_hypothesis ?? null,\n    },\n    action_recommendation: {\n      initial: u1.action_recommendation,\n      reconciled_gate_status: u9 ? u9.gate_status : null,\n      productization_tier: u9 ? u9.productization_tier : null,\n    },\n    status: {\n      pipeline_status: u1.status,\n      compliance_review_required: u1.compliance_review_required,\n      compliance_keywords_detected: u1.compliance_keywords_detected,\n    },\n    duplicates_related_opportunities: {\n      declared: u1.duplicates_related_opportunities,\n      corroborating_ids_from_uor03: u3 ? u3.corroborating_opportunity_ids : [],\n    },\n    demand_cluster: tags,\n    content_opportunity: u7 ? {\n      status: u7.content_opportunity_status,\n      attention_potential: u7.attention_potential,\n      attention_potential_score: u7.attention_potential_score,\n      copyright_platform_risk_flag: u7.copyright_platform_risk_flag,\n    } : null,\n    service_opportunity: u8 ? {\n      status: u8.service_opportunity_status,\n      keywords_matched: u8.service_seeking_keywords_matched,\n    } : null,\n    subsequent_outcome: u1.subsequent_outcome,\n    uor10_formula_version: 'uor10-v1-historical-intelligence-2026-09-10',\n  };\n});\n\nconst withComputedAt = results.map((r) => ({ ...r, computed_at: new Date().toISOString() }));\nconst fileText = withComputedAt.map((r) => JSON.stringify(r)).join('\\n') + '\\n';\n\nreturn [{\n  json: {\n    record_count: results.length,\n    uor01_total_lines: uor01.records.length,\n    uor01_unique_ids: uor01ById.size,\n    results,\n    file_text: fileText,\n  },\n}];\n"
+      }
+    },
+    {"id": "convert-current-state", "name": "Convert Current-State to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [4032, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-current-state", "name": "Write Current-State File", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [4256, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-10-historical-intelligence.jsonl", "dataPropertyName": "data", "options": {"append": false}}},
+    {
+      "id": "build-history-log",
+      "name": "Build History-Log Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4480, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Sequential dependency, not an independent sibling branch (Phase 1 finding):\n// this node only runs after 'Write Current-State File' has already succeeded,\n// because it sits after it in a single linear chain. The history log only\n// ever records a snapshot of a state write that is confirmed to have actually\n// happened -- current-state is authoritative; the log is a secondary,\n// dependent audit trail, never the other way around.\nconst results = $('Build Join').first().json.results;\nconst stampedText = results\n  .map((r) => JSON.stringify({ ...r, snapshot_taken_at: new Date().toISOString() }))\n  .join('\\n') + '\\n';\nreturn [{ json: { file_text: stampedText } }];\n"
+      }
+    },
+    {"id": "convert-history-log", "name": "Convert History-Log to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [4704, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-history-log", "name": "Write History-Log File", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [4928, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-10-history-log.jsonl", "dataPropertyName": "data", "options": {"append": true}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-01 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-01 Storage": {"main": [[{"node": "Extract UOR-01 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-01 Text": {"main": [[{"node": "Read UOR-03 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-03 Storage": {"main": [[{"node": "Extract UOR-03 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-03 Text": {"main": [[{"node": "Read UOR-04 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-04 Storage": {"main": [[{"node": "Extract UOR-04 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-04 Text": {"main": [[{"node": "Read UOR-05 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-05 Storage": {"main": [[{"node": "Extract UOR-05 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-05 Text": {"main": [[{"node": "Read UOR-06 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-06 Storage": {"main": [[{"node": "Extract UOR-06 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-06 Text": {"main": [[{"node": "Read UOR-07 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-07 Storage": {"main": [[{"node": "Extract UOR-07 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-07 Text": {"main": [[{"node": "Read UOR-08 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-08 Storage": {"main": [[{"node": "Extract UOR-08 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-08 Text": {"main": [[{"node": "Read UOR-09 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-09 Storage": {"main": [[{"node": "Extract UOR-09 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-09 Text": {"main": [[{"node": "Build Join", "type": "main", "index": 0}]]},
+    "Build Join": {"main": [[{"node": "Convert Current-State to File", "type": "main", "index": 0}]]},
+    "Convert Current-State to File": {"main": [[{"node": "Write Current-State File", "type": "main", "index": 0}]]},
+    "Write Current-State File": {"main": [[{"node": "Build History-Log Text", "type": "main", "index": 0}]]},
+    "Build History-Log Text": {"main": [[{"node": "Convert History-Log to File", "type": "main", "index": 0}]]},
+    "Convert History-Log to File": {"main": [[{"node": "Write History-Log File", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

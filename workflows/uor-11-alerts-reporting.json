@@ -1,0 +1,40 @@
+{
+  "name": "UOR-11-Alerts-Reporting",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor10", "name": "Read UOR-10 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-10-historical-intelligence.jsonl", "options": {}}},
+    {"id": "extract-uor10", "name": "Extract UOR-10 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor01", "name": "Read UOR-01 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-uor01", "name": "Extract UOR-01 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "build-alerts",
+      "name": "Build Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor10Text = $('Extract UOR-10 Text').first().json.data || '';\nconst uor01Text = $('Extract UOR-01 Text').first().json.data || '';\n\nfunction parseLines(text) {\n  const out = []; let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nconst uor10 = parseLines(uor10Text);\nconst uor01 = parseLines(uor01Text);\n\n// UOR-10 doesn't currently carry source_url (a known schema gap, not fixed\n// here -- flagged in the build log rather than reopening an already-verified\n// module mid-task). Look it up directly from UOR-01's latest observation per id.\nconst sourceUrlById = new Map();\nuor01.records.forEach((r) => {\n  const existing = sourceUrlById.get(r.opportunity_id);\n  if (!existing || String(r.date_stored) > String(existing.date_stored)) {\n    sourceUrlById.set(r.opportunity_id, { source_url: r.source_url, date_stored: r.date_stored });\n  }\n});\n\n// v1 alert condition (Section 20: one narrow condition, proven end-to-end,\n// before generalizing): a record currently sitting in a productization tier\n// that means UOR-09 judged it worth a human review draft -- LIGHT_VALIDATION_DRAFT\n// or FULL_PRODUCTIZATION_DRAFT. This is a REVIEW QUEUE, not a one-shot \"just\n// happened\" notification: it's a full regeneration every run (not an append\n// log), so it always reflects the current true set of items needing review --\n// no duplicate-fire risk by construction, and a failed run simply leaves the\n// last known-good queue in place rather than silently losing anything.\nconst ALERT_TIERS = new Set(['LIGHT_VALIDATION_DRAFT', 'FULL_PRODUCTIZATION_DRAFT']);\n\nconst alerts = uor10.records\n  .filter((r) => ALERT_TIERS.has(r.action_recommendation?.productization_tier))\n  .map((r) => {\n    const srcUrl = sourceUrlById.get(r.opportunity_id)?.source_url ?? null;\n    return {\n      opportunity_id: r.opportunity_id,\n      alert_type: 'PRODUCTIZATION_READY_FOR_REVIEW',\n      productization_tier: r.action_recommendation.productization_tier,\n      reconciled_opportunity_score: r.final_score?.reconciled ?? null,\n      reconciled_evidence_confidence: r.evidence_confidence?.reconciled ?? null,\n      opportunity_title: r.raw_signal?.opportunity_title ?? null,\n      source: r.source,\n      source_url: srcUrl,\n      demand_cluster_tags: (r.demand_cluster || []).map((t) => t.tag),\n      requires_human_approval_for_execution: true,\n      alert_formula_version: 'uor11-v1-review-queue-2026-09-10',\n      computed_at: new Date().toISOString(),\n    };\n  });\n\nconst fileText = alerts.map((a) => JSON.stringify(a)).join('\\n') + (alerts.length ? '\\n' : '');\n\nreturn [{\n  json: {\n    alert_count: alerts.length,\n    uor10_record_count: uor10.records.length,\n    file_text: fileText,\n  },\n}];\n"
+      }
+    },
+    {"id": "convert-alerts", "name": "Convert Alerts to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-alerts", "name": "Write Alerts File", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-11-alerts-needs-review.jsonl", "dataPropertyName": "data", "options": {"append": false}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-10 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-10 Storage": {"main": [[{"node": "Extract UOR-10 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-10 Text": {"main": [[{"node": "Read UOR-01 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-01 Storage": {"main": [[{"node": "Extract UOR-01 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-01 Text": {"main": [[{"node": "Build Alerts", "type": "main", "index": 0}]]},
+    "Build Alerts": {"main": [[{"node": "Convert Alerts to File", "type": "main", "index": 0}]]},
+    "Convert Alerts to File": {"main": [[{"node": "Write Alerts File", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

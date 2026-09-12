@@ -1,0 +1,90 @@
+{
+  "name": "UOR-02-Source-Adapter-04-YouTube",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-existing-storage", "name": "Read Existing Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-from-file", "name": "Extract From File", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "fetch-yt-search",
+      "name": "Fetch YouTube Search Results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [672, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=faceless%20youtube%20channel",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": false,
+        "sendHeaders": false,
+        "options": {"response": {"response": {"responseFormat": "json"}}}
+      },
+      "credentials": {"httpQueryAuth": {"id": "RoGQ1LjCGBLNfnQO", "name": "Query Auth account"}}
+    },
+    {
+      "id": "build-video-id-list",
+      "name": "Build Video ID List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const searchItems = ($input.first().json.items || []).filter(it => it.id && it.id.videoId);\n\nconst videoIds = searchItems.map(it => it.id.videoId);\n\nif (videoIds.length === 0) {\n  throw new Error('No videoId values found in YouTube search.list response — cannot proceed to videos.list.');\n}\n\nreturn [{\n  json: {\n    videoIds: videoIds.join(','),\n    searchItems\n  }\n}];"
+      }
+    },
+    {
+      "id": "fetch-yt-stats",
+      "name": "Fetch YouTube Video Statistics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1120, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/youtube/v3/videos?part=statistics&id={{ $json.videoIds }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": false,
+        "sendHeaders": false,
+        "options": {"response": {"response": {"responseFormat": "json"}}}
+      },
+      "credentials": {"httpQueryAuth": {"id": "RoGQ1LjCGBLNfnQO", "name": "Query Auth account"}}
+    },
+    {
+      "id": "merge-normalize-dedupe",
+      "name": "Merge + Normalize + Dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "let existingText = '';\ntry {\n  existingText = $('Extract From File').first()?.json?.data || '';\n} catch (e) {\n  throw new Error(`Failed to read existing storage: ${e.message}`);\n}\n\nconst existingUrls = new Set(\n  existingText.split('\\n').filter(Boolean).map(line => {\n    try { return JSON.parse(line).source_url; } catch { return null; }\n  }).filter(Boolean)\n);\n\nconst PLACEHOLDER = 'Unclassified — pending AI extraction';\n\nlet searchItems = [];\ntry {\n  searchItems = $('Build Video ID List').first().json.searchItems || [];\n} catch (e) {\n  throw new Error(`Failed to read search items: ${e.message}`);\n}\n\nconst statsItems = $input.first().json.items || [];\nconst statsById = new Map(statsItems.map(v => [v.id, v.statistics || {}]));\n\nconst normalized = searchItems.map((item) => {\n  const videoId = item.id.videoId;\n  const snippet = item.snippet || {};\n  const stats = statsById.get(videoId) || {};\n  const sourceUrl = `https://www.youtube.com/watch?v=${videoId}`;\n  const title = snippet.title || '(untitled)';\n  const description = snippet.description || '';\n  const rawText = description ? `${title} — ${description}` : title;\n  const viewCount = Number(stats.viewCount ?? 0);\n  const likeCount = Number(stats.likeCount ?? 0);\n  const commentCount = Number(stats.commentCount ?? 0);\n\n  return {\n    signal_id: `yt-${videoId}`,\n    source_type: 'public_api',\n    source_name: 'YouTube (Data API v3)',\n    source_url: sourceUrl,\n    signal_date: snippet.publishedAt || null,\n    market: PLACEHOLDER,\n    opportunity_category: PLACEHOLDER,\n    opportunity_title: title,\n    problem: rawText,\n    target_customer: PLACEHOLDER,\n    demand_signal: rawText,\n    proposed_solution: PLACEHOLDER,\n    monetization_model: PLACEHOLDER,\n    delivery_method: PLACEHOLDER,\n    geography: PLACEHOLDER,\n    evidence_notes: `Raw signal ingested from YouTube Data API v3 (search.list + videos.list). Video ID ${videoId}, channel \"${snippet.channelTitle || 'unknown'}\", ${viewCount} views, ${likeCount} likes, ${commentCount} comments. Not yet human-reviewed.`,\n    channel_title: snippet.channelTitle || null,\n    video_id: videoId,\n    view_count: viewCount,\n    like_count: likeCount,\n    comment_count: commentCount,\n    _dedupe_url: sourceUrl\n  };\n});\n\nconst fresh = normalized.filter((rec) => !existingUrls.has(rec._dedupe_url));\n\nreturn fresh.map((rec) => {\n  const { _dedupe_url, ...clean } = rec;\n  return { json: clean };\n});"
+      }
+    },
+    {
+      "id": "send-to-uor-01",
+      "name": "Send to UOR-01",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1568, 0],
+      "parameters": {"source": "database", "workflowId": {"__rl": true, "value": "0wrSuhTsnMMHWScF", "mode": "id"}, "mode": "each", "options": {"waitForSubWorkflow": true}}
+    }
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read Existing Storage", "type": "main", "index": 0}]]},
+    "Read Existing Storage": {"main": [[{"node": "Extract From File", "type": "main", "index": 0}]]},
+    "Extract From File": {"main": [[{"node": "Fetch YouTube Search Results", "type": "main", "index": 0}]]},
+    "Fetch YouTube Search Results": {"main": [[{"node": "Build Video ID List", "type": "main", "index": 0}]]},
+    "Build Video ID List": {"main": [[{"node": "Fetch YouTube Video Statistics", "type": "main", "index": 0}]]},
+    "Fetch YouTube Video Statistics": {"main": [[{"node": "Merge + Normalize + Dedupe", "type": "main", "index": 0}]]},
+    "Merge + Normalize + Dedupe": {"main": [[{"node": "Send to UOR-01", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

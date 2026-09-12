@@ -1,0 +1,129 @@
+{
+  "name": "UOR-09-Productization-Engine",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor01", "name": "Read UOR-01 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-uor01", "name": "Extract UOR-01 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor03", "name": "Read UOR-03 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-03-evidence-enrichment.jsonl", "options": {}}},
+    {"id": "extract-uor03", "name": "Extract UOR-03 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor04", "name": "Read UOR-04 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1120, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-04-opportunity-scoring.jsonl", "options": {}}},
+    {"id": "extract-uor04", "name": "Extract UOR-04 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor05", "name": "Read UOR-05 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-05-capability-matching.jsonl", "options": {}}},
+    {"id": "extract-uor05", "name": "Extract UOR-05 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [1792, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor06", "name": "Read UOR-06 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [2016, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-06-demand-clustering.jsonl", "options": {}}},
+    {"id": "extract-uor06", "name": "Extract UOR-06 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [2240, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "build-gate-decisions",
+      "name": "Build Gate Decisions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2464, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor01Text = $('Extract UOR-01 Text').first().json.data || '';\nconst uor03Text = $('Extract UOR-03 Text').first().json.data || '';\nconst uor04Text = $('Extract UOR-04 Text').first().json.data || '';\nconst uor05Text = $('Extract UOR-05 Text').first().json.data || '';\nconst uor06Text = $('Extract UOR-06 Text').first().json.data || '';\n\n// Reused convention: HIGH_THRESHOLD = 60, identical to UOR-01's own Section 26\n// interpretation gate (Validation node) -- read live before this was designed,\n// not re-derived, so a score is meaningfully comparable across modules\n// (Sections 7/24).\nconst HIGH_THRESHOLD = 60;\nconst GATE_FORMULA_VERSION = 'uor09-v1-productization-gate-2026-09-09';\n\nfunction parseLines(text) {\n  const out = [];\n  let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nconst uor01 = parseLines(uor01Text);\nconst uor03 = parseLines(uor03Text);\nconst uor04 = parseLines(uor04Text);\nconst uor05 = parseLines(uor05Text);\nconst uor06 = parseLines(uor06Text);\n\nconst uor01ById = new Map();\nuor01.records.forEach((r) => {\n  const existing = uor01ById.get(r.opportunity_id);\n  if (!existing || String(r.date_stored) > String(existing.date_stored)) {\n    uor01ById.set(r.opportunity_id, r);\n  }\n});\n\nconst uor04ById = new Map(uor04.records.map((r) => [r.opportunity_id, r]));\n\nconst uor03ById = new Map();\nuor03.records.forEach((r) => {\n  const existing = uor03ById.get(r.opportunity_id);\n  if (!existing || String(r.computed_at) > String(existing.computed_at)) {\n    uor03ById.set(r.opportunity_id, r);\n  }\n});\n\nconst uor05ById = new Map();\nuor05.records.forEach((r) => {\n  const existing = uor05ById.get(r.opportunity_id);\n  if (!existing || String(r.computed_at) > String(existing.computed_at)) {\n    uor05ById.set(r.opportunity_id, r);\n  }\n});\n\nconst tagsByOppId = new Map();\nuor06.records.forEach((row) => {\n  (row.member_opportunity_ids || []).forEach((id) => {\n    if (!tagsByOppId.has(id)) tagsByOppId.set(id, []);\n    tagsByOppId.get(id).push({ tag: row.tag, frequency_count: row.frequency_count, cluster_status: row.cluster_status });\n  });\n});\n\nconst allOppIds = [...uor01ById.keys()];\n\nconst results = allOppIds.map((id) => {\n  const u1 = uor01ById.get(id);\n  const u3 = uor03ById.get(id) || null;\n  const u4 = uor04ById.get(id) || null;\n  const u5 = uor05ById.get(id) || null;\n  const tags = tagsByOppId.get(id) || [];\n\n  const isSynthetic = u1.evidence?.is_synthetic === true;\n  const complianceFlag = u1.compliance_review_required === true;\n\n  let gate_status;\n  let opportunity_score = null;\n  let evidence_confidence = null;\n\n  if (!u4 || typeof u4.reconciled_opportunity_score !== 'number' || typeof u4.evidence_confidence_v2_latest !== 'number') {\n    gate_status = 'NOT_YET_SCORED';\n  } else {\n    opportunity_score = u4.reconciled_opportunity_score;\n    evidence_confidence = u4.evidence_confidence_v2_latest;\n    const highOpp = opportunity_score >= HIGH_THRESHOLD;\n    const highEvid = evidence_confidence >= HIGH_THRESHOLD;\n    if (highOpp && highEvid) gate_status = 'HIGH-PRIORITY CANDIDATE';\n    else if (highOpp && !highEvid) gate_status = 'PROMISING — REQUIRES VALIDATION';\n    else if (!highOpp && highEvid) gate_status = 'RELIABLY LOW PRIORITY';\n    else gate_status = 'INSUFFICIENT / LOW PRIORITY';\n  }\n\n  let productization_tier;\n  let tier_reason;\n  if (isSynthetic) {\n    // Cost-governance addition (Section 12): never spend a real LLM call\n    // productizing a known-fake test fixture, regardless of its score.\n    productization_tier = 'NO_DRAFT';\n    tier_reason = 'SYNTHETIC_TEST_EXCLUDED';\n  } else if (gate_status === 'HIGH-PRIORITY CANDIDATE') {\n    productization_tier = 'FULL_PRODUCTIZATION_DRAFT';\n    tier_reason = 'HIGH_SCORE_HIGH_EVIDENCE';\n  } else if (gate_status === 'PROMISING — REQUIRES VALIDATION') {\n    productization_tier = 'LIGHT_VALIDATION_DRAFT';\n    tier_reason = 'HIGH_SCORE_LOW_EVIDENCE';\n  } else if (gate_status === 'NOT_YET_SCORED') {\n    productization_tier = 'NO_DRAFT';\n    tier_reason = 'NOT_YET_SCORED_BY_UOR04';\n  } else {\n    productization_tier = 'NO_DRAFT';\n    tier_reason = gate_status === 'RELIABLY LOW PRIORITY' ? 'LOW_SCORE_HIGH_EVIDENCE' : 'LOW_SCORE_LOW_EVIDENCE';\n  }\n\n  // Section 25/26 compliance override -- absolute, applied last, never\n  // bypassed by score. No LLM call ever made for this tier.\n  if (complianceFlag) {\n    productization_tier = 'COMPLIANCE_REVIEW_ONLY';\n    tier_reason = 'COMPLIANCE_REVIEW_REQUIRED_OVERRIDE';\n  }\n\n  const needs_llm_draft = productization_tier === 'FULL_PRODUCTIZATION_DRAFT' || productization_tier === 'LIGHT_VALIDATION_DRAFT';\n\n  return {\n    opportunity_id: id,\n    is_synthetic: isSynthetic,\n    compliance_review_required: complianceFlag,\n    compliance_keywords_detected: u1.compliance_keywords_detected || [],\n    opportunity_score,\n    evidence_confidence,\n    gate_status,\n    productization_tier,\n    tier_reason,\n    needs_llm_draft,\n    opportunity_title: u1.raw_signal?.opportunity_title ?? null,\n    problem: u1.raw_signal?.problem ?? null,\n    demand_signal: u1.raw_signal?.demand_signal ?? null,\n    evidence_notes: u1.evidence?.evidence_notes ?? null,\n    source: u1.source ?? null,\n    source_url: u1.source_url ?? null,\n    corroboration_status: u3?.corroboration_status ?? null,\n    matched_capability_domains: u5?.matched_capability_domains ?? [],\n    matched_stack_tools: u5?.matched_stack_tools ?? [],\n    capability_match_status: u5?.capability_match_status ?? null,\n    automation_potential_pct: u5?.automation_potential_pct ?? null,\n    demand_tags: tags,\n    gate_formula_version: GATE_FORMULA_VERSION,\n  };\n});\n\nreturn results.map((r) => ({ json: r }));\n"
+      }
+    },
+    {
+      "id": "route-by-tier",
+      "name": "Route: Needs LLM Draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [2688, 0],
+      "parameters": {
+        "conditions": {
+          "options": {"version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "strict"},
+          "combinator": "and",
+          "conditions": [
+            {"id": "needs-llm-cond", "operator": {"type": "boolean", "operation": "true", "singleValue": true}, "leftValue": "={{ $json.needs_llm_draft }}", "rightValue": ""}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "build-prompt",
+      "name": "Build Productization Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2912, -160],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const rec = $json;\n\nconst isFull = rec.productization_tier === 'FULL_PRODUCTIZATION_DRAFT';\n\nconst FULL_FIELDS = [\n  'customer_problem', 'target_customer', 'proposed_solution', 'deliverables',\n  'fulfillment_workflow', 'estimated_fulfillment_time', 'required_tools',\n  'estimated_cost', 'pricing_hypothesis', 'pricing_tiers', 'recurring_upsells',\n  'portfolio_demo_concept', 'proof_of_concept_requirements', 'sales_proposition',\n  'competitive_differentiation', 'risks', 'next_validation_experiment',\n];\nconst LIGHT_FIELDS = [\n  'customer_problem', 'target_customer', 'proposed_solution',\n  'risks', 'proof_of_concept_requirements', 'next_validation_experiment',\n];\n\nconst fields = isFull ? FULL_FIELDS : LIGHT_FIELDS;\n\n// Existing Section 3 stack -- the model should prefer these tools and only\n// name something outside this list if the record genuinely requires it.\nconst EXISTING_STACK = ['MacBook', 'Claude app', 'Claude Code', 'Anthropic API', 'n8n (self-hosted)', 'MCP', 'KIE.ai', 'ElevenLabs', 'ChatGPT', 'Grok', 'CapCut', 'Canva', 'Xcode'];\n\nconst context = {\n  opportunity_id: rec.opportunity_id,\n  source: rec.source,\n  source_url: rec.source_url,\n  opportunity_title: rec.opportunity_title,\n  problem: rec.problem,\n  demand_signal: rec.demand_signal,\n  evidence_notes: rec.evidence_notes,\n  known_opportunity_score: rec.opportunity_score,\n  known_evidence_confidence: rec.evidence_confidence,\n  known_matched_capability_domains: rec.matched_capability_domains,\n  known_matched_stack_tools: rec.matched_stack_tools,\n  known_automation_potential_pct: rec.automation_potential_pct,\n  known_demand_cluster_tags: rec.demand_tags,\n  known_corroboration_status: rec.corroboration_status,\n};\n\nconst tierInstruction = isFull\n  ? 'This opportunity is a HIGH-PRIORITY CANDIDATE (high score, high evidence confidence). Produce a full productization draft.'\n  : 'This opportunity is PROMISING — REQUIRES VALIDATION (high score, but evidence confidence is not yet strong). Produce a LIGHTER draft focused on what would need to be validated before any investment — do NOT include pricing, sales language, or a go-to-market pitch; this is not ready for that yet.';\n\nconst promptText = `Here is one opportunity record that has already passed a deterministic scoring gate (score and evidence confidence were calculated by code, not by you -- do not recompute or restate them as your own judgment):\n\n${JSON.stringify(context, null, 2)}\n\n${tierInstruction}\n\nThe known automation percentage (${rec.automation_potential_pct ?? 'not available'}%) was already computed deterministically upstream -- do NOT include an automation_percentage field, it will be attached separately.\n\nExisting available tool stack (prefer these; only name something outside this list if the opportunity genuinely requires it, and say so explicitly): ${EXISTING_STACK.join(', ')}.\n\nProduce a JSON object with exactly these fields: ${fields.join(', ')}.\n\nFor any field where the record does not contain enough information to support a real answer, use the literal string \"insufficient information\" for that field rather than inventing a plausible-sounding number or claim. Fields expecting a list should be JSON arrays of short strings. pricing_tiers (if requested) should be an array of objects like {\"tier_name\": \"...\", \"price\": \"...\", \"includes\": \"...\"}.`;\n\nreturn {\n  json: {\n    ...rec,\n    prompt_text: promptText,\n    prompt_fields_requested: fields,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "anthropic-productization",
+      "name": "Generate Productization Draft",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [3136, -160],
+      "parameters": {
+        "modelId": {"__rl": true, "value": "={{ $json.productization_tier === 'FULL_PRODUCTIZATION_DRAFT' ? 'claude-sonnet-5' : 'claude-haiku-4-5-20251001' }}", "mode": "id"},
+        "messages": {"values": [{"content": "={{ $json.prompt_text }}"}]},
+        "options": {
+          "system": "You are the Productization stage of a market-intelligence pipeline (UOR-09). You receive one opportunity record that has ALREADY passed a deterministic scoring gate -- do not recompute, restate, or second-guess the opportunity score or evidence confidence; those are calculated by code, never by you. Your job is to draft a testable commercial offer (or a validation-focused note, depending on the tier specified in the prompt) using exactly the fields requested. STRICT RULES: - Do NOT invent a numeric automation percentage; it is supplied separately and attached downstream. - Do NOT include pricing, sales language, or a go-to-market pitch unless the prompt tells you this is a full HIGH-PRIORITY CANDIDATE draft -- a PROMISING/REQUIRES VALIDATION record is not ready for that. - If the record does not contain enough information to support a real answer for a field, use the literal string \"insufficient information\" for that field rather than guessing. - Respond with ONLY valid JSON matching the exact field names requested. No markdown, no commentary, no code fences -- just the JSON object.",
+          "maxTokens": "={{ $json.productization_tier === 'FULL_PRODUCTIZATION_DRAFT' ? 3072 : 2048 }}",
+          "temperature": 0.3
+        }
+      },
+      "credentials": {"anthropicApi": {"id": "JdsEfr8k3k0UoUQO", "name": "UOR - Anthropic API"}}
+    },
+    {
+      "id": "parse-draft",
+      "name": "Parse Productization Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3360, -160],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "const aiResponse = $json;\nconst rec = $('Build Productization Prompt').item.json;\n\nfunction stripCodeFences(text) {\n  return String(text)\n    .trim()\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/```\\s*$/i, '')\n    .trim();\n}\n\nconst rawText = aiResponse?.content?.[0]?.text ?? null;\n\nlet parsed = null;\nlet parseError = null;\n\nif (rawText) {\n  try {\n    parsed = JSON.parse(stripCodeFences(rawText));\n  } catch (err) {\n    parseError = err.message;\n  }\n} else {\n  parseError = 'No text content found in AI response';\n}\n\nconst requiredFields = rec.prompt_fields_requested || [];\nconst missingFields = parsed ? requiredFields.filter((k) => !(k in parsed)) : [...requiredFields];\nconst draftValid = parsed !== null && missingFields.length === 0;\n\n// automation_percentage is a deterministic passthrough, never LLM-generated\n// (see UOR-09-Build-Log.md) -- attach it here, after parsing, not requested\n// of the model at all.\nconst productization_draft = draftValid\n  ? { ...parsed, automation_percentage: rec.automation_potential_pct }\n  : null;\n\n// NOTE (bug fix): the Anthropic node's own output ({content: [...]}) does NOT\n// carry through the upstream item's other fields -- unlike Code nodes, it\n// replaces $json entirely with just its own response. Every field this node\n// needs from before the AI call (opportunity_id, productization_tier, etc.)\n// must be re-fetched from the named upstream node via $('Build Productization\n// Prompt').item, exactly like UOR-01's own Structured Output node already does\n// for its AI Extraction step. The first build of this node assumed spread-through\n// would work and silently produced records with no opportunity_id at all,\n// each then misclassified downstream as draft_generation_status: NOT_ATTEMPTED\n// even though the real Anthropic call had actually succeeded -- caught via file\n// verification, not the execution's own reported 'success' status.\nreturn {\n  json: {\n    ...rec,\n    productization_draft,\n    draft_generation_status: draftValid ? 'GENERATED' : 'PARSE_FAILED',\n    draft_parse_error: parseError,\n    draft_missing_fields: missingFields,\n    draft_raw_response: rawText,\n  },\n};\n"
+      }
+    },
+    {"id": "merge-branches", "name": "Merge", "type": "n8n-nodes-base.merge", "typeVersion": 3.2, "position": [3584, 0], "parameters": {"mode": "append", "numberInputs": 2}},
+    {
+      "id": "build-storage-record",
+      "name": "Build Storage Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3808, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const items = $input.all();\n\nconst results = items.map((item) => {\n  const r = item.json;\n  const tier = r.productization_tier;\n\n  let productization_draft;\n  let draft_generation_status;\n  let llm_model_used = null;\n  let llm_call_made = false;\n\n  if (tier === 'FULL_PRODUCTIZATION_DRAFT' || tier === 'LIGHT_VALIDATION_DRAFT') {\n    // These came through the LLM branch -- Parse Productization Draft already\n    // set productization_draft / draft_generation_status on the item.\n    productization_draft = r.productization_draft ?? null;\n    draft_generation_status = r.draft_generation_status ?? 'PARSE_FAILED';\n    llm_call_made = true;\n    llm_model_used = tier === 'FULL_PRODUCTIZATION_DRAFT' ? 'claude-sonnet-5' : 'claude-haiku-4-5-20251001';\n  } else if (tier === 'COMPLIANCE_REVIEW_ONLY') {\n    productization_draft = {\n      notice: 'COMPLIANCE REVIEW REQUIRED — see Section 25/26 of the master project instructions. Requires human/professional clearance before any productization, proposed solution, pricing, or sales language is developed for this opportunity.',\n      compliance_keywords_detected: r.compliance_keywords_detected || [],\n    };\n    draft_generation_status = 'NOT_ATTEMPTED';\n  } else {\n    // NO_DRAFT\n    productization_draft = null;\n    draft_generation_status = 'NOT_ATTEMPTED';\n  }\n\n  return {\n    opportunity_id: r.opportunity_id,\n    source: r.source,\n    source_url: r.source_url,\n    opportunity_title: r.opportunity_title,\n    is_synthetic: r.is_synthetic,\n    compliance_review_required: r.compliance_review_required,\n    opportunity_score: r.opportunity_score,\n    evidence_confidence: r.evidence_confidence,\n    gate_status: r.gate_status,\n    productization_tier: tier,\n    tier_reason: r.tier_reason,\n    productization_draft,\n    draft_generation_status,\n    llm_call_made,\n    llm_model_used,\n    matched_capability_domains: r.matched_capability_domains,\n    matched_stack_tools: r.matched_stack_tools,\n    demand_tags: r.demand_tags,\n    gate_formula_version: r.gate_formula_version,\n    requires_human_approval_for_execution: true,\n    computed_at: new Date().toISOString(),\n  };\n});\n\nconst fileText = results.map((r) => JSON.stringify(r)).join('\\n') + '\\n';\n\nreturn [{\n  json: {\n    record_count: results.length,\n    tier_breakdown: results.reduce((acc, r) => { acc[r.productization_tier] = (acc[r.productization_tier] || 0) + 1; return acc; }, {}),\n    llm_calls_made: results.filter((r) => r.llm_call_made).length,\n    draft_status_breakdown: results.reduce((acc, r) => { acc[r.draft_generation_status] = (acc[r.draft_generation_status] || 0) + 1; return acc; }, {}),\n    file_text: fileText,\n  },\n}];\n"
+      }
+    },
+    {"id": "convert-to-file", "name": "Convert to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [4032, 0], "parameters": {"operation": "toText", "options": {}, "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-uor09-output", "name": "Write UOR-09 Output", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [4256, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-09-productization.jsonl", "dataPropertyName": "data", "options": {"append": false}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-01 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-01 Storage": {"main": [[{"node": "Extract UOR-01 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-01 Text": {"main": [[{"node": "Read UOR-03 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-03 Storage": {"main": [[{"node": "Extract UOR-03 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-03 Text": {"main": [[{"node": "Read UOR-04 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-04 Storage": {"main": [[{"node": "Extract UOR-04 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-04 Text": {"main": [[{"node": "Read UOR-05 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-05 Storage": {"main": [[{"node": "Extract UOR-05 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-05 Text": {"main": [[{"node": "Read UOR-06 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-06 Storage": {"main": [[{"node": "Extract UOR-06 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-06 Text": {"main": [[{"node": "Build Gate Decisions", "type": "main", "index": 0}]]},
+    "Build Gate Decisions": {"main": [[{"node": "Route: Needs LLM Draft?", "type": "main", "index": 0}]]},
+    "Route: Needs LLM Draft?": {"main": [[{"node": "Build Productization Prompt", "type": "main", "index": 0}], [{"node": "Merge", "type": "main", "index": 1}]]},
+    "Build Productization Prompt": {"main": [[{"node": "Generate Productization Draft", "type": "main", "index": 0}]]},
+    "Generate Productization Draft": {"main": [[{"node": "Parse Productization Draft", "type": "main", "index": 0}]]},
+    "Parse Productization Draft": {"main": [[{"node": "Merge", "type": "main", "index": 0}]]},
+    "Merge": {"main": [[{"node": "Build Storage Record", "type": "main", "index": 0}]]},
+    "Build Storage Record": {"main": [[{"node": "Convert to File", "type": "main", "index": 0}]]},
+    "Convert to File": {"main": [[{"node": "Write UOR-09 Output", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

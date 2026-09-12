@@ -1,0 +1,40 @@
+{
+  "name": "UOR-04-Opportunity-Scoring",
+  "nodes": [
+    {"id": "manual-trigger-1", "name": "When clicking 'Execute workflow'", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [0, 0], "parameters": {}},
+    {"id": "read-uor01-storage", "name": "Read UOR-01 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [224, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-01-opportunities.jsonl", "options": {}}},
+    {"id": "extract-uor01-text", "name": "Extract UOR-01 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [448, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {"id": "read-uor03-storage", "name": "Read UOR-03 Storage", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [672, 0], "parameters": {"operation": "read", "fileSelector": "/home/node/.n8n-files/uor-03-evidence-enrichment.jsonl", "options": {}}},
+    {"id": "extract-uor03-text", "name": "Extract UOR-03 Text", "type": "n8n-nodes-base.extractFromFile", "typeVersion": 1.1, "position": [896, 0], "parameters": {"operation": "text", "binaryPropertyName": "data", "destinationKey": "data"}},
+    {
+      "id": "reconcile-score",
+      "name": "Reconcile & Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const uor01Text = $('Extract UOR-01 Text').first().json.data || '';\nconst uor03Text = $('Extract UOR-03 Text').first().json.data || '';\n\nfunction parseLines(text) {\n  const out = [];\n  let failures = 0;\n  text.split('\\n').filter((l) => l.trim().length > 0).forEach((line) => {\n    try { out.push(JSON.parse(line)); } catch (e) { failures++; }\n  });\n  return { records: out, failures };\n}\n\nconst uor01 = parseLines(uor01Text);\nconst uor03 = parseLines(uor03Text);\nconst countsMatch = uor01.records.length === uor03.records.length;\n\nconst DIMENSIONS_SCORED_BY_UOR01 = [\n  'demand_signal_strength', 'revenue_potential', 'competition_level',\n  'fulfillment_difficulty', 'automation_potential', 'recurring_revenue_potential',\n  'scalability', 'compatibility_with_existing_stack', 'speed_to_first_revenue',\n  'customer_acquisition_difficulty'\n];\n\nconst DIMENSIONS_NOT_YET_COMPUTABLE = [\n  'market_saturation', 'ease_of_market_entry', 'fulfillment_time',\n  'startup_cost', 'marginal_fulfillment_cost', 'required_new_skills',\n  'required_new_tools', 'defensibility', 'platform_risk', 'longevity',\n  'commercial_intent'\n];\n\nconst groups = new Map();\nuor01.records.forEach((rec, idx) => {\n  const key = rec.opportunity_id ?? `__no_id_${idx}`;\n  if (!groups.has(key)) groups.set(key, []);\n  groups.get(key).push({ rec, idx });\n});\n\nconst outputRows = [];\nconst seenIds = new Set();\n\nuor01.records.forEach((rec, idx) => {\n  const id = rec.opportunity_id ?? `__no_id_${idx}`;\n  if (seenIds.has(id)) return;\n  seenIds.add(id);\n\n  const group = groups.get(id);\n  const scores = group\n    .map((g) => (typeof g.rec.final_score === 'number' ? g.rec.final_score : null))\n    .filter((s) => s !== null);\n\n  const observation_count = group.length;\n  let reconciled_opportunity_score = null;\n  let score_variance = null;\n  let score_reconciliation_status;\n\n  if (scores.length === 0) {\n    score_reconciliation_status = 'NO_SCORABLE_OBSERVATIONS';\n  } else if (observation_count === 1) {\n    reconciled_opportunity_score = scores[0];\n    score_variance = 0;\n    score_reconciliation_status = 'SINGLE_OBSERVATION';\n  } else {\n    reconciled_opportunity_score = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);\n    score_variance = Math.max(...scores) - Math.min(...scores);\n    score_reconciliation_status = 'RECONCILED_MULTI_OBSERVATION';\n  }\n\n  let evidence_confidence_v2_latest = null;\n  if (countsMatch) {\n    const evidenceValues = group\n      .map((g) => uor03.records[g.idx])\n      .filter(Boolean)\n      .map((e) => e.evidence_confidence_v2)\n      .filter((v) => typeof v === 'number');\n    if (evidenceValues.length) {\n      evidence_confidence_v2_latest = evidenceValues[evidenceValues.length - 1];\n    }\n  }\n\n  outputRows.push({\n    opportunity_id: rec.opportunity_id ?? null,\n    observation_count,\n    component_scores: scores,\n    reconciled_opportunity_score,\n    score_variance,\n    score_reconciliation_status,\n    evidence_confidence_v2_latest,\n    dimensions_scored_by_uor01: DIMENSIONS_SCORED_BY_UOR01,\n    dimensions_not_yet_computable: Object.fromEntries(\n      DIMENSIONS_NOT_YET_COMPUTABLE.map((d) => [d, null])\n    ),\n    scoring_formula_version: 'uor04-v1-reconciliation-2026-09-05',\n    computed_at: new Date().toISOString(),\n  });\n});\n\nconst fileText = outputRows.map((r) => JSON.stringify(r)).join('\\n') + '\\n';\n\nreturn [{\n  json: {\n    uor01_record_count: uor01.records.length,\n    uor01_parse_failures: uor01.failures,\n    uor03_record_count: uor03.records.length,\n    uor03_parse_failures: uor03.failures,\n    uor03_alignment_warning: countsMatch ? null : `UOR-01 and UOR-03 record counts differ (${uor01.records.length} vs ${uor03.records.length}) -- UOR-03 enrichment may be stale; evidence_confidence values omitted this run`,\n    unique_opportunity_count: outputRows.length,\n    file_text: fileText,\n  },\n}];"
+      }
+    },
+    {"id": "convert-to-file", "name": "Convert to File", "type": "n8n-nodes-base.convertToFile", "typeVersion": 1.1, "position": [1344, 0], "parameters": {"operation": "toText", "sourceProperty": "file_text", "binaryPropertyName": "data"}},
+    {"id": "write-uor04-output", "name": "Write UOR-04 Output", "type": "n8n-nodes-base.readWriteFile", "typeVersion": 1.1, "position": [1568, 0], "parameters": {"operation": "write", "fileName": "/home/node/.n8n-files/uor-04-opportunity-scoring.jsonl", "dataPropertyName": "data", "options": {"append": false}}}
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {"main": [[{"node": "Read UOR-01 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-01 Storage": {"main": [[{"node": "Extract UOR-01 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-01 Text": {"main": [[{"node": "Read UOR-03 Storage", "type": "main", "index": 0}]]},
+    "Read UOR-03 Storage": {"main": [[{"node": "Extract UOR-03 Text", "type": "main", "index": 0}]]},
+    "Extract UOR-03 Text": {"main": [[{"node": "Reconcile & Score", "type": "main", "index": 0}]]},
+    "Reconcile & Score": {"main": [[{"node": "Convert to File", "type": "main", "index": 0}]]},
+    "Convert to File": {"main": [[{"node": "Write UOR-04 Output", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  }
+}

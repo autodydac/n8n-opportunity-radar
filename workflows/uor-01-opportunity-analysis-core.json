@@ -1,0 +1,200 @@
+{
+  "name": "UOR-01-Opportunity Analysis Core",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "5255cb53-453a-4dba-b459-c8e16928b782",
+      "name": "When clicking \u2018Execute workflow\u2019"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "2962f706-97a5-4946-8971-100e9af110f2", "name": "signal_id", "value": "TEST-001", "type": "string"},
+            {"id": "adde7d11-1369-4f42-a84c-52d969644d7e", "name": "source_type", "value": "manual_test", "type": "string"},
+            {"id": "3947e405-fac7-4c46-9fc5-3271f0771d72", "name": "source_name", "value": "Controlled UOR Test", "type": "string"},
+            {"id": "fd7f8923-3b96-4fe1-9e2d-9b74748c32d3", "name": "source_url", "value": "N/A", "type": "string"},
+            {"id": "34ad35d6-818e-49ae-883d-4cffd7b28e37", "name": "signal_date", "value": "2026-09-02", "type": "string"},
+            {"id": "6cdccab4-20ca-43f0-84b2-f11bd90c1009", "name": "market", "value": "AI Automation Services", "type": "string"},
+            {"id": "8ea581f4-4085-4979-8e47-3392e329565c", "name": "opportunity_title", "value": "AI Lead Response Automation For Small Businesses", "type": "string"},
+            {"id": "425859c7-0b3d-440d-b6fe-1a10640256ae", "name": "problem", "value": "Small businesses lose potential customers because inbound leads are not answered quickly or consistently. ", "type": "string"},
+            {"id": "ab16b72a-0204-4646-a145-2953d27c7bd4", "name": "target_customer", "value": "Small businesses receiving inbound website leads", "type": "string"},
+            {"id": "fa3f6a48-cc58-4017-8420-56589148e7fa", "name": "demand_signal", "value": "Businesses need faster lead response, qualification, follow-up, and appointment conversion.", "type": "string"},
+            {"id": "b81ce420-3111-4ec4-b198-08bc5c224b22", "name": "proposed_solution", "value": "Automated lead capture, instant response, qualification, follow-up, and appointment workflow built with n8n and AI.", "type": "string"},
+            {"id": "d48093de-fb1c-493b-9001-660996648dc1", "name": "monetization_model", "value": "Setup fee plus optional monthly maintenance and optimization ", "type": "string"},
+            {"id": "fbcf47b5-58ee-4187-abf7-7ec1e6d33674", "name": "delivery_method", "value": "n8n automation workflow with connected APIs and AI services", "type": "string"},
+            {"id": "ed38d4b4-595d-4b4e-957b-4678b526c08e", "name": "geography", "value": "United States", "type": "string"},
+            {"id": "a95a34da-7c3e-4323-b552-0e6ed9ce38f3", "name": "evidence_notes", "value": "Synthetic test record. No external demand evidence has been collected yet.", "type": "string"},
+            {"id": "19ef282e-f071-49d8-bb42-b518d779e04c", "name": "opportunity_category", "value": "Lead Generation Automation", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [224, 0],
+      "id": "682f4a8e-b2ba-446e-8ede-5018857fb34f",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst requiredFields = [\n  'signal_id',\n  'source_type',\n  'source_name',\n  'signal_date',\n  'market',\n  'opportunity_category',\n  'opportunity_title',\n  'problem',\n  'target_customer',\n  'demand_signal',\n  'proposed_solution',\n  'monetization_model',\n  'delivery_method',\n  'geography',\n  'evidence_notes'\n];\n\nconst regulatedKeywords = [\n  'health',\n  'medical',\n  'medicine',\n  'pharma',\n  'pharmaceutical',\n  'therapy',\n  'diagnosis',\n  'patient',\n  'finance',\n  'financial',\n  'investment',\n  'investing',\n  'loan',\n  'lending',\n  'credit',\n  'insurance',\n  'legal',\n  'lawyer',\n  'attorney',\n  'employment screening',\n  'background check',\n  'government',\n  'privacy',\n  'personal data'\n];\n\n// Section 25/26 compliance co-occurrence fix. Root cause of confirmed false\n// positives: a bare substring match on a regulated-industry word anywhere in\n// the text, with no requirement that the record actually be describing a\n// regulated offering. Fixed with a POSITIVE requirement (not a growing\n// exclusion blocklist): a regulated keyword only counts if self-description/\n// offering language co-occurs in the SAME sentence/paragraph chunk. An\n// ambiguous case -- keyword present, no self-description language anywhere\n// -- still does NOT flag: deliberately accepted, since that is exactly the\n// false-positive shape found empirically, not genuine ambiguity the gate\n// wants preserved on the conservative side.\nconst SELF_DESCRIPTION_PATTERNS = [\n  /\\b(we|i|our team)\\s+(are\\s+)?(build(?:s|ing)?|offer(?:s|ing)?|provide?(?:s|ing)?|operate?(?:s|ing)?|run(?:s|ning)?|sell(?:s|ing)?|develop(?:s|ing)?|deliver(?:s|ing)?|creat(?:e|es|ing)|found(?:ed|ing)?|launch(?:ed|es|ing)?)\\b/i,\n  /\\b(we're|i'm|we are|i am)\\s+(building|offering|providing|operating|running|selling|developing|delivering|creating|launching)\\b/i,\n  /\\bour\\s+(platform|product|service|company|tool|app|startup|business)\\b/i,\n  /\\b(is|are|'s)\\s+a\\s+[a-z\\s]{0,25}?(platform|product|service|company|tool|app|startup|business)\\s+for\\b/i,\n  /\\bin\\s+the\\s+[a-z\\s]{0,25}?(industry|space|sector)\\b/i,\n];\n\nfunction splitIntoChunks(text) {\n  return text.split(/<p>|(?<=[.!?])\\s+/).filter(Boolean);\n}\n\nfunction hasSelfDescription(chunk) {\n  return SELF_DESCRIPTION_PATTERNS.some((re) => re.test(chunk));\n}\n\nfunction classifyCompliance(searchableText) {\n  const chunks = splitIntoChunks(searchableText);\n  const matchedKeywords = new Set();\n  chunks.forEach((chunk) => {\n    const chunkKeywords = regulatedKeywords.filter((kw) => chunk.includes(kw));\n    if (chunkKeywords.length > 0 && hasSelfDescription(chunk)) {\n      chunkKeywords.forEach((kw) => matchedKeywords.add(kw));\n    }\n  });\n  return [...matchedKeywords];\n}\n\nreturn items.map((item) => {\n  const data = item.json;\n\n  const missingFields = requiredFields.filter((field) => {\n    const value = data[field];\n    return (\n      value === undefined ||\n      value === null ||\n      String(value).trim() === ''\n    );\n  });\n\n  const searchableText = [\n    data.market,\n    data.opportunity_title,\n    data.problem,\n    data.target_customer,\n    data.demand_signal,\n    data.proposed_solution,\n    data.evidence_notes\n  ]\n    .filter(Boolean)\n    .join(' ')\n    .toLowerCase();\n\n  const matchedRegulatedKeywords = classifyCompliance(searchableText);\n\n  const isSynthetic =\n    String(data.source_type || '').toLowerCase() === 'manual_test' ||\n    String(data.evidence_notes || '').toLowerCase().includes('synthetic test');\n\n  const sourceUrl = String(data.source_url || '').trim().toLowerCase();\n  const evidenceSourceMissing =\n    !isSynthetic &&\n    (\n      sourceUrl === '' ||\n      sourceUrl === 'n/a' ||\n      sourceUrl === 'na' ||\n      sourceUrl === 'none'\n    );\n\n  return {\n    json: {\n      ...data,\n      uor_stage: 'intake_validated',\n      processed_at: new Date().toISOString(),\n      required_field_count: requiredFields.length,\n      missing_required_fields: missingFields,\n      missing_required_field_count: missingFields.length,\n      intake_valid: missingFields.length === 0,\n      is_synthetic: isSynthetic,\n      evidence_status: isSynthetic\n        ? 'SYNTHETIC_TEST_ONLY'\n        : 'REQUIRES_EVIDENCE_REVIEW',\n      evidence_source_missing: evidenceSourceMissing,\n      compliance_review_required: matchedRegulatedKeywords.length > 0,\n      compliance_keywords_detected: matchedRegulatedKeywords,\n      opportunity_score_status: 'NOT_SCORED',\n      evidence_confidence_status: 'NOT_SCORED'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 0],
+      "id": "09d3cb5b-819d-4c69-8f57-a1f16f8d4410",
+      "name": "Intake Validation"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Here is one validated opportunity intake record:\n\n{{ JSON.stringify($json) }}\n\nExtract and classify the following factors based ONLY on what's stated in this record. For each, give either a 1-10 estimate or \"insufficient information,\" plus one short reasoning sentence:\n\n- demand_signal_strength\n- revenue_potential\n- competition_level\n- fulfillment_difficulty\n- automation_potential\n- recurring_revenue_potential\n- scalability\n- compatibility_with_existing_stack\n- speed_to_first_revenue\n- customer_acquisition_difficulty\n\nAlso classify the evidence itself:\n- evidence_directness: is this a real transaction/request/budget, or a hypothesis/assumption?\n- evidence_sample_size: how many independent instances does this record represent (usually just \"1\" for a single record)?\n- evidence_notes_summary: one sentence summarizing what evidence, if any, was actually provided.\n\nReturn this as a single JSON object with those fields as keys. Each factor should be an object like {\"estimate\": 7, \"reasoning\": \"...\"} or {\"estimate\": \"insufficient information\", \"reasoning\": \"...\"}."
+            }
+          ]
+        },
+        "options": {
+          "system": "You are the AI Extraction/Analysis stage of a market-intelligence pipeline. You receive one validated opportunity intake record and must extract and classify factors about it.  STRICT RULES: - Do NOT output a final \"Opportunity Score.\" - Do NOT output a final \"Evidence Confidence\" score. - Those are calculated deterministically downstream by code, never by you. - You may only extract, classify, and estimate individual factors, each with a brief reasoning note. - If the record does not contain enough information to judge a factor, say so honestly (e.g. \"insufficient information\") rather than guessing a number. - Respond with ONLY valid JSON. No markdown, no commentary, no code fences \u2014 just the JSON object.",
+          "maxTokens": 1024,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [672, 0],
+      "id": "2bd29ed0-0c9e-49b6-8a09-e8c9320c8494",
+      "name": "AI Extraction",
+      "credentials": {
+        "anthropicApi": {
+          "id": "JdsEfr8k3k0UoUQO",
+          "name": "UOR - Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiItems = $input.all();\nconst intakeItems = $('Intake Validation').all();\n\nconst expectedFactorKeys = [\n  'demand_signal_strength',\n  'revenue_potential',\n  'competition_level',\n  'fulfillment_difficulty',\n  'automation_potential',\n  'recurring_revenue_potential',\n  'scalability',\n  'compatibility_with_existing_stack',\n  'speed_to_first_revenue',\n  'customer_acquisition_difficulty',\n  'evidence_directness',\n  'evidence_sample_size',\n  'evidence_notes_summary'\n];\n\nfunction stripCodeFences(text) {\n  return String(text)\n    .trim()\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/```\\s*$/i, '')\n    .trim();\n}\n\nreturn aiItems.map((item, index) => {\n  const intakeData = intakeItems[index]?.json || {};\n  const data = item.json;\n\n  const rawText = data?.content?.[0]?.text ?? null;\n\n  let parsed = null;\n  let parseError = null;\n\n  if (rawText) {\n    try {\n      parsed = JSON.parse(stripCodeFences(rawText));\n    } catch (err) {\n      parseError = err.message;\n    }\n  } else {\n    parseError = 'No text content found in AI response';\n  }\n\n  const missingFactorKeys = parsed\n    ? expectedFactorKeys.filter((key) => !(key in parsed))\n    : [...expectedFactorKeys];\n\n  const structuredOutputValid = parsed !== null && missingFactorKeys.length === 0;\n\n  return {\n    json: {\n      ...intakeData,\n      ai_extracted_factors: parsed,\n      ai_raw_response: rawText,\n      structured_output_valid: structuredOutputValid,\n      structured_output_parse_error: parseError,\n      missing_factor_keys: missingFactorKeys,\n      uor_stage: 'structured_output',\n      structured_output_processed_at: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 0],
+      "id": "bf6a43bf-cff8-4b12-b989-a52d590dbd0f",
+      "name": "Structured Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst directFactors = [\n  'demand_signal_strength',\n  'revenue_potential',\n  'automation_potential',\n  'recurring_revenue_potential',\n  'scalability',\n  'compatibility_with_existing_stack',\n  'speed_to_first_revenue'\n];\n\nconst inverseFactors = [\n  'competition_level',\n  'fulfillment_difficulty',\n  'customer_acquisition_difficulty'\n];\n\nconst totalFactorsConsidered = directFactors.length + inverseFactors.length;\n\nfunction numericEstimate(factorObj) {\n  if (!factorObj) return null;\n  const val = factorObj.estimate;\n  return typeof val === 'number' ? val : null;\n}\n\nreturn items.map((item) => {\n  const data = item.json;\n\n  if (!data.structured_output_valid || !data.ai_extracted_factors) {\n    return {\n      json: {\n        ...data,\n        uor_stage: 'initial_factor_scoring',\n        opportunity_score: null,\n        opportunity_score_status: 'BLOCKED_INVALID_STRUCTURED_OUTPUT',\n        scoring_factor_coverage: null,\n        evidence_confidence: null,\n        evidence_confidence_status: 'BLOCKED_INVALID_STRUCTURED_OUTPUT',\n        scoring_formula_version: 'v1-equal-weight-2026-09-03'\n      }\n    };\n  }\n\n  const factors = data.ai_extracted_factors;\n\n  let weightedSum = 0;\n  let countUsed = 0;\n\n  directFactors.forEach((key) => {\n    const val = numericEstimate(factors[key]);\n    if (val !== null) {\n      weightedSum += val;\n      countUsed += 1;\n    }\n  });\n\n  inverseFactors.forEach((key) => {\n    const val = numericEstimate(factors[key]);\n    if (val !== null) {\n      weightedSum += (10 - val);\n      countUsed += 1;\n    }\n  });\n\n  const opportunityScore =\n    countUsed > 0 ? Math.round((weightedSum / countUsed) * 10) : null;\n\n  const opportunityScoreStatus =\n    countUsed === totalFactorsConsidered\n      ? 'FULL_COVERAGE'\n      : countUsed > 0\n      ? 'PARTIAL_COVERAGE'\n      : 'INSUFFICIENT_DATA';\n\n  let evidenceConfidence;\n  let evidenceConfidenceStatus;\n\n  if (data.is_synthetic) {\n    evidenceConfidence = 0;\n    evidenceConfidenceStatus = 'SYNTHETIC_TEST_ONLY';\n  } else {\n    const directnessText = String(\n      factors.evidence_directness?.estimate || ''\n    ).toLowerCase();\n\n    let directnessScore = 3;\n    if (/hypothesis|assumption|no evidence|speculat/.test(directnessText)) {\n      directnessScore = 1;\n    } else if (/request|inquiry|interest/.test(directnessText)) {\n      directnessScore = 5;\n    } else if (/transaction|payment|budget|contract|purchase/.test(directnessText)) {\n      directnessScore = 9;\n    }\n\n    const sampleSizeRaw = factors.evidence_sample_size?.estimate;\n    const sampleSize = typeof sampleSizeRaw === 'number' ? sampleSizeRaw : 0;\n    const sampleSizeScore = Math.min(sampleSize, 10);\n\n    const sourceMissingPenalty = data.evidence_source_missing ? 0 : 10;\n\n    const rawEvidenceAvg = (directnessScore + sampleSizeScore + sourceMissingPenalty) / 3;\n    evidenceConfidence = Math.round(rawEvidenceAvg * 10);\n    evidenceConfidenceStatus = 'INITIAL_ESTIMATE';\n  }\n\n  return {\n    json: {\n      ...data,\n      uor_stage: 'initial_factor_scoring',\n      opportunity_score: opportunityScore,\n      opportunity_score_status: opportunityScoreStatus,\n      scoring_factor_coverage: `${countUsed}/${totalFactorsConsidered}`,\n      evidence_confidence: evidenceConfidence,\n      evidence_confidence_status: evidenceConfidenceStatus,\n      scoring_formula_version: 'v1-equal-weight-2026-09-03'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1264, 0],
+      "id": "8faf46a6-73e6-4ef1-a346-64bcc2d40927",
+      "name": "Initial Factor Scoring"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst HIGH_THRESHOLD = 60;\n\nreturn items.map((item) => {\n  const data = item.json;\n\n  const structurallyValid =\n    data.intake_valid === true &&\n    data.structured_output_valid === true;\n\n  if (!structurallyValid) {\n    return {\n      json: {\n        ...data,\n        uor_stage: 'validation',\n        validation_status: 'BLOCKED_INCOMPLETE_PIPELINE',\n        interpretation: null,\n        ready_for_storage: false,\n        requires_human_approval_for_execution: true,\n        validation_notes: 'Record did not pass intake validation and/or structured output parsing; not eligible for scoring interpretation.'\n      }\n    };\n  }\n\n  const oppScore = data.opportunity_score;\n  const evidConf = data.evidence_confidence;\n\n  let interpretation;\n  if (oppScore === null || evidConf === null) {\n    interpretation = 'INSUFFICIENT_DATA_FOR_INTERPRETATION';\n  } else {\n    const highOpp = oppScore >= HIGH_THRESHOLD;\n    const highEvid = evidConf >= HIGH_THRESHOLD;\n\n    if (highOpp && highEvid) {\n      interpretation = 'HIGH-PRIORITY CANDIDATE';\n    } else if (highOpp && !highEvid) {\n      interpretation = 'PROMISING \u2014 REQUIRES VALIDATION';\n    } else if (!highOpp && highEvid) {\n      interpretation = 'RELIABLY LOW PRIORITY';\n    } else {\n      interpretation = 'INSUFFICIENT / LOW PRIORITY';\n    }\n  }\n\n  const validationStatus = data.compliance_review_required\n    ? 'COMPLIANCE_REVIEW_REQUIRED'\n    : 'VALIDATED';\n\n  return {\n    json: {\n      ...data,\n      uor_stage: 'validation',\n      validation_status: validationStatus,\n      interpretation,\n      interpretation_thresholds: `high >= ${HIGH_THRESHOLD} (v1-equal-weight)`,\n      ready_for_storage: true,\n      requires_human_approval_for_execution: true,\n      validation_notes: data.compliance_review_required\n        ? 'Flagged for mandatory compliance review per Section 25/26. This flag is not cleared by any Opportunity Score or Evidence Confidence value.'\n        : 'Passed structural validation. Interpretation is decision support only, not an execution authorization (Section 13).'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1488, 0],
+      "id": "c8f7c4c8-723d-41d5-bc79-2c9cf67eb4a7",
+      "name": "Validation"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "storage_line",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [1968, 0],
+      "id": "d0cbfad1-1411-4dfc-bd29-df15e271b2ed",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.n8n-files/uor-01-opportunities.jsonl",
+        "options": {
+          "append": true
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [2208, 0],
+      "id": "fc965325-2c41-494a-b884-f727231dbe5a",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node 8a \u2014 Build Storage Record\n// Maps the validated record onto the Section 16 historical-intelligence schema\n// and serializes it as one JSON string, ready for Convert to File.\n\nconst record = $input.item.json;\n\nconst storageRecord = {\n  opportunity_id: record.signal_id ?? null,\n  date_discovered: record.signal_date ?? null,\n  date_stored: new Date().toISOString(),\n  source: record.source_name ?? null,\n  source_type: record.source_type ?? null,\n  source_url: record.source_url ?? null,\n  category: record.opportunity_category ?? null,\n\n  raw_signal: {\n    opportunity_title: record.opportunity_title ?? null,\n    problem: record.problem ?? null,\n    demand_signal: record.demand_signal ?? null,\n    market: record.market ?? null,\n    geography: record.geography ?? null,\n  },\n\n  normalized_opportunity: record.proposed_solution ?? null,\n\n  customer_problem: {\n    target_customer: record.target_customer ?? null,\n    problem: record.problem ?? null,\n  },\n\n  evidence: {\n    evidence_notes: record.evidence_notes ?? null,\n    evidence_status: record.evidence_status ?? null,\n    is_synthetic: record.is_synthetic ?? null,\n    evidence_source_missing: record.evidence_source_missing ?? null,\n  },\n  evidence_confidence: record.evidence_confidence ?? null,\n  evidence_confidence_status: record.evidence_confidence_status ?? null,\n\n  scoring_factors: record.ai_extracted_factors ?? null,\n  scoring_factor_coverage: record.scoring_factor_coverage ?? null,\n  scoring_formula_version: record.scoring_formula_version ?? null,\n\n  final_score: record.opportunity_score ?? null,\n  opportunity_score_status: record.opportunity_score_status ?? null,\n\n  tools_required: null,\n  existing_capability_match: null,\n  estimated_fulfillment_cost: null,\n  estimated_revenue_potential_usd: null,\n  duplicates_related_opportunities: null,\n  demand_cluster: null,\n  subsequent_outcome: null,\n\n  action_recommendation: record.interpretation ?? null,\n  interpretation_thresholds: record.interpretation_thresholds ?? null,\n  status: record.validation_status ?? null,\n  ready_for_storage: record.ready_for_storage ?? null,\n  requires_human_approval_for_execution: record.requires_human_approval_for_execution ?? null,\n  validation_notes: record.validation_notes ?? null,\n\n  compliance_review_required: record.compliance_review_required ?? null,\n  compliance_keywords_detected: record.compliance_keywords_detected ?? null,\n\n  full_record: record,\n};\n\nif (record.ready_for_storage !== true) {\n  return {\n    json: {\n      storage_skipped: true,\n      reason: `ready_for_storage was ${JSON.stringify(record.ready_for_storage)}, expected true`,\n      opportunity_id: record.signal_id ?? null,\n      validation_status: record.validation_status ?? null,\n    },\n  };\n}\n\nreturn {\n  json: {\n    storage_skipped: false,\n    opportunity_id: storageRecord.opportunity_id,\n        storage_line: JSON.stringify(storageRecord) + \"\\n\",\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1712, 0],
+      "id": "3e211c1d-8836-4142-961c-cd84a7613434",
+      "name": "Build Storage Record"
+    },
+    {
+      "id": "from-source-adapter",
+      "name": "From Source Adapter",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    }
+  ],
+  "connections": {
+    "When clicking \u2018Execute workflow\u2019": {
+      "main": [[{"node": "Edit Fields", "type": "main", "index": 0}]]
+    },
+    "Edit Fields": {
+      "main": [[{"node": "Intake Validation", "type": "main", "index": 0}]]
+    },
+    "Intake Validation": {
+      "main": [[{"node": "AI Extraction", "type": "main", "index": 0}]]
+    },
+    "AI Extraction": {
+      "main": [[{"node": "Structured Output", "type": "main", "index": 0}]]
+    },
+    "Structured Output": {
+      "main": [[{"node": "Initial Factor Scoring", "type": "main", "index": 0}]]
+    },
+    "Initial Factor Scoring": {
+      "main": [[{"node": "Validation", "type": "main", "index": 0}]]
+    },
+    "Validation": {
+      "main": [[{"node": "Build Storage Record", "type": "main", "index": 0}]]
+    },
+    "Convert to File": {
+      "main": [[{"node": "Read/Write Files from Disk", "type": "main", "index": 0}]]
+    },
+    "Build Storage Record": {
+      "main": [[{"node": "Convert to File", "type": "main", "index": 0}]]
+    },
+    "From Source Adapter": {
+      "main": [[{"node": "Intake Validation", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  }
+}
